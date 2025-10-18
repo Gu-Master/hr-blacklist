@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HR BLACK LIST: БД и Анализатор</title>
+    
+    <!-- Tailwind CSS - Фреймворк для стилей -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Конфигурация Tailwind для кастомных цветов и шрифтов
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        'danger-red': '#cc3333',
+                        'dark-bg': '#1a1a1a',
+                        'warning-orange': '#ffaa00',
+                        'success-green': '#33cc66',
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- ================================================================= -->
+    <!-- СЕКЦИЯ CSS СТИЛЕЙ                                                 -->
+    <!-- ================================================================= -->
+    <style>
+        /* Стиль для анимации ввода */
+        @keyframes pulse-shadow {
+            0% { box-shadow: 0 0 10px rgba(255, 170, 0, 0.4); }
+            50% { box-shadow: 0 0 20px rgba(255, 170, 0, 0.8); }
+            100% { box-shadow: 0 0 10px rgba(255, 170, 0, 0.4); }
+        }
+
+        .input-area:focus {
+            animation: pulse-shadow 1.5s infinite;
+        }
+
+        /* Адаптивность для мобильных устройств */
+        .company-list-item {
+            display: grid;
+            grid-template-columns: 1fr 60px 50px;
+            gap: 1rem;
+            align-items: center;
+        }
+        @media (min-width: 640px) {
+            .company-list-item {
+                grid-template-columns: 2fr 1fr 80px 100px;
+            }
+        }
+        /* Стили для модального окна */
+        .modal {
+            transition: opacity 0.25s ease;
+        }
+        .modal-content {
+            transition: transform 0.25s ease;
+        }
+        /* Кастомный стиль для слайдера */
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #ffaa00;
+            border-radius: 50%;
+            cursor: pointer;
+            margin-top: -6px; /* Выравнивание по центру */
+        }
+    </style>
+</head>
+<body class="bg-dark-bg text-white font-sans min-h-screen p-4 sm:p-8">
+
+    <!-- ================================================================= -->
+    <!-- СЕКЦИЯ HTML РАЗМЕТКИ                                              -->
+    <!-- ================================================================= -->
+    <div class="max-w-4xl mx-auto">
+        <header class="text-center mb-10">
+            <h1 class="text-4xl sm:text-5xl font-extrabold tracking-tight text-danger-red border-b-4 border-warning-orange pb-2">
+                HR BLACK LIST
+            </h1>
+            <p class="text-lg sm:text-xl mt-2 text-warning-orange font-medium">
+                ОТКРЫТАЯ БАЗА ДАННЫХ РЕКРУТЕРОВ-МУДАКОВ
+            </p>
+            <p id="authStatus" class="text-sm mt-1 text-gray-500">Подключение...</p>
+        </header>
+
+        <main class="space-y-8">
+            <!-- 1. АНАЛИЗ ВАКАНСИЙ (ПАРСЕР) -->
+            <section class="bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl border-2 border-gray-700">
+                <h2 class="text-2xl font-bold mb-4 text-gray-200 border-b border-gray-700 pb-2">
+                    1. Детектор Токсичности (опционально)
+                </h2>
+                <p class="text-sm text-gray-400 mb-4">Вставь сюда вакансию, чтобы автоматически выставить <span class="font-bold text-warning-orange">токсичность менеджмента</span> в калькуляторе ниже.</p>
+                <textarea id="jobText" rows="8" 
+                          class="input-area w-full bg-gray-900 text-gray-100 p-4 rounded-lg border-2 border-gray-700 focus:outline-none transition duration-300 placeholder-gray-500 text-sm"
+                          placeholder="Сюда вставляй полный текст вакансии, сука. Мой рентген уже прогревается..."></textarea>
+
+                <div class="mt-6">
+                    <button onclick="analyzeVacancy()" 
+                            class="w-full px-8 py-3 bg-danger-red hover:bg-red-700 text-white font-extrabold uppercase rounded-full shadow-lg transform transition duration-150 hover:scale-[1.02] active:scale-[0.98] border-2 border-warning-orange tracking-widest">
+                        <span class="text-lg">ПРОАНАЛИЗИРОВАТЬ И ЗАПОЛНИТЬ</span>
+                    </button>
+                </div>
+
+                <div id="results" class="mt-10 pt-6 border-t border-gray-700 hidden">
+                    <h3 class="text-xl font-bold mb-4 text-warning-orange">ВЕРДИКТ АНАЛИЗАТОРА:</h3>
+                    <p class="text-base font-medium text-gray-400 mb-2">НАЙДЕННЫЕ КРАСНЫЕ ФЛАГИ:</p>
+                    <ul id="redFlagsList" class="space-y-2"></ul>
+                </div>
+            </section>
+            
+            <!-- 2. ФОРМА ДОБАВЛЕНИЯ В ЧС -->
+            <section id="reviewFormSection" class="bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl border-2 border-warning-orange">
+                <h2 class="text-2xl font-bold mb-4 text-danger-red border-b border-gray-700 pb-2">
+                    2. Калькулятор Хуёвости
+                </h2>
+                <div class="space-y-4">
+                    <div>
+                        <label for="companyURL" class="block text-sm font-medium text-gray-400">Ссылка на профиль компании (hh.ru, career.habr.com):</label>
+                        <input type="url" id="companyURL" class="w-full bg-gray-900 text-gray-100 p-3 rounded-lg mt-1 input-area" placeholder="https://hh.ru/employer/12345" required>
+                    </div>
+                     <div>
+                        <label for="companyName" class="block text-sm font-medium text-gray-400">Название Компании (если отличается от профиля):</label>
+                         <div class="relative">
+                            <input type="text" id="companyName" class="w-full bg-gray-900 text-gray-100 p-3 rounded-lg mt-1 input-area" placeholder="Начни печатать, например: 'Рога и Копыта'" autocomplete="off">
+                            <div id="autocompleteResults" class="absolute z-10 w-full bg-gray-700 rounded-b-lg shadow-lg hidden max-h-48 overflow-y-auto"></div>
+                        </div>
+                    </div>
+                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label for="recruiterName" class="block text-sm font-medium text-gray-400">Имя Рекрутера (если он мудак):</label>
+                            <input type="text" id="recruiterName" class="w-full bg-gray-900 text-gray-100 p-3 rounded-lg mt-1 input-area" placeholder="Например: 'Елена Прекрасная'">
+                        </div>
+                        <div class="flex items-center space-x-4">
+                            <img id="recruiterPhotoPreview" src="https://placehold.co/80x80/333333/FFFFFF?text=?" alt="Recruiter photo preview" class="w-20 h-20 rounded-full object-cover bg-gray-700">
+                            <div>
+                                <label for="recruiterPhoto" class="block text-sm font-medium text-gray-400">Фото рекрутера (вещдок):</label>
+                                <input type="file" id="recruiterPhoto" accept="image/jpeg, image/png" class="hidden">
+                                <label for="recruiterPhoto" class="cursor-pointer mt-1 inline-block bg-gray-700 hover:bg-gray-600 text-white text-xs font-bold py-2 px-3 rounded-lg">
+                                    Загрузить файл
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Новый калькулятор -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4">
+                        <div>
+                            <label for="overtimeHours" class="block text-sm font-medium text-gray-400">Переработки (часов в неделю):</label>
+                            <input type="number" id="overtimeHours" min="0" value="0" class="w-full bg-gray-900 text-gray-100 p-3 rounded-lg mt-1 input-area">
+                        </div>
+                        <div>
+                            <label for="salaryDelay" class="block text-sm font-medium text-gray-400">Задержка ЗП (дней):</label>
+                            <input type="number" id="salaryDelay" min="0" value="0" class="w-full bg-gray-900 text-gray-100 p-3 rounded-lg mt-1 input-area">
+                        </div>
+                        <div>
+                            <label for="freeTests" class="block text-sm font-medium text-gray-400">Бесплатные тестовые (штук):</label>
+                            <input type="number" id="freeTests" min="0" value="0" class="w-full bg-gray-900 text-gray-100 p-3 rounded-lg mt-1 input-area">
+                        </div>
+                        <div>
+                            <label for="managementToxicity" class="block text-sm font-medium text-gray-400">Токсичность менеджмента: <span id="toxicityValue" class="font-bold">5</span>/10</label>
+                            <input type="range" id="managementToxicity" min="0" max="10" value="5" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer mt-2">
+                        </div>
+                    </div>
+                    <div class="mt-4 p-4 rounded-lg bg-gray-900 border border-gray-700 text-center">
+                        <p class="text-sm font-medium text-gray-400">ИТОГОВЫЙ РЕЙТИНГ ХУЁВОСТИ:</p>
+                        <p id="calculatedScoreDisplay" class="text-4xl font-extrabold text-warning-orange">0</p>
+                    </div>
+
+                    <div>
+                        <label for="reviewText" class="block text-sm font-medium text-gray-400">Твой Комментарий (почему мудаки):</label>
+                        <textarea id="reviewText" rows="3" class="w-full bg-gray-900 text-gray-100 p-3 rounded-lg mt-1 input-area" placeholder="Выскажи всё, что накипело. Например: 'Рекрутерша зевнула мне в лицо и спросила мой знак зодиака'"></textarea>
+                    </div>
+                    <button id="submitButton" onclick="submitCompanyReview()"
+                            class="w-full px-8 py-3 bg-warning-orange hover:bg-orange-600 text-dark-bg font-extrabold uppercase rounded-full shadow-lg transform transition duration-150 hover:scale-[1.02] active:scale-[0.98] tracking-widest">
+                        ВЫСЕЧЬ В ГРАНИТЕ!
+                    </button>
+                    <p id="submissionStatus" class="text-center text-sm font-medium mt-2"></p>
+                </div>
+            </section>
+            
+            <!-- 3. ОТКРЫТЫЙ ЧЁРНЫЙ СПИСОК (БД) -->
+            <section class="bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl border-2 border-gray-700">
+                <h2 class="text-2xl font-bold mb-4 text-gray-200 border-b border-gray-700 pb-2">
+                    3. Доска Позора (ТОП-10)
+                </h2>
+                
+                <div class="text-sm font-bold text-gray-400 mb-3 company-list-item pb-1 border-b border-gray-600 hidden sm:grid">
+                    <span class="text-left">КОМПАНИЯ</span>
+                    <span class="text-center">СЧЕТ</span>
+                    <span class="text-center">ГОЛОСОВ</span>
+                    <span class="text-right">ПОСЛЕДНИЙ ОТЗЫВ</span>
+                </div>
+
+                <div id="blacklistContainer" class="space-y-3">
+                    <p id="loadingMessage" class="text-warning-orange italic text-center">Пытаюсь достучаться до серверов в аду...</p>
+                </div>
+            </section>
+        </main>
+
+        <footer class="text-center mt-12 text-gray-600 text-xs">
+            <p>"Работайте, негры, солнце ещё высоко." - народная мудрость рекрутеров.</p>
+            <p>Дисклеймер: Все совпадения случайны, а персонажи вымышлены. Кроме мудаков. Они реальны.</p>
+        </footer>
+    </div>
+
+    <!-- МОДАЛЬНОЕ ОКНО ДЛЯ ДЕТАЛИЗАЦИИ -->
+    <div id="detailsModal" class="modal fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center p-4 hidden z-50 opacity-0 pointer-events-none">
+        <div class="modal-content bg-gray-800 w-full max-w-2xl rounded-2xl shadow-lg border-2 border-warning-orange p-6 sm:p-8 transform scale-95">
+            <div class="flex justify-between items-center border-b-2 border-gray-700 pb-4 mb-6">
+                <h2 id="modalCompanyName" class="text-2xl sm:text-3xl font-extrabold text-warning-orange"></h2>
+                <button onclick="closeDetailsModal()" class="text-gray-400 hover:text-white transition duration-150">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <div id="modalReviewsContainer" class="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                <!-- Отзывы будут вставлены сюда -->
+            </div>
+        </div>
+    </div>
+
+
+    <!-- ================================================================= -->
+    <!-- СЕКЦИЯ JAVASCRIPT ЛОГИКИ                                          -->
+    <!-- ================================================================= -->
+    <script type="module">
+        // --- Firebase SDK Imports ---
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, query, limit, orderBy, runTransaction, Timestamp, arrayUnion } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
+        
+        // --- 1. ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ И КОНСТАНТЫ ---
+        
+        // Firebase
+        let app, db, auth, storage;
+        let userId = 'anonymous';
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const PUBLIC_COLLECTION_PATH = `/artifacts/${appId}/public/data/companies`;
+        let companyCache = []; // Кэш для поиска компаний
+
+        // Анализатор вакансий
+        const RED_FLAGS = [
+            { phrase: "мы как семья", warning: "О, да. Семья, где ты — приёмный сын, которого заставляют мыть посуду за всеми. Готовься к пассивно-агрессивным упрёкам и работе по выходным 'по-братски'." },
+            { phrase: "зп по результатам собеседования", warning: "Перевод: 'Посмотрим, на какую минималку ты согласишься, лошок'. Готовься торговаться, как на турецком рынке, только в конце тебя всё равно наебут." },
+            { phrase: "высокая зп (не указана)", warning: "'Высокая' для кого? Для CEO? Если бы она была реально высокой, её бы написали цифрами, чтобы все охуели. А так — пиздёж." },
+            { phrase: "молодой и дружный коллектив", warning: "Расшифровка: вчерашние студенты, которые выгорают за полгода, пьют смузи и не знают, как чинить прод. Опыта ты тут не наберёшься, зато историй для психотерапевта — вагон." },
+            { phrase: "гибкий график", warning: "Конечно гибкий! Ты можешь работать с 8 утра до 12 ночи, или с 10 утра до 2 ночи. Выбор за тобой! Главное — не переставай работать, сука." },
+            { phrase: "многозадачность", warning: "Ты будешь и швец, и жнец, и на дуде игрец. А платить тебе будут как одному швецу, причём ученику. Готовься к тому, что твой мозг превратится в кашу." },
+            { phrase: "печеньки и кофе", warning: "Смотри, мы компенсировали отсутствие ДМС, премий и адекватного руководства вафелькой 'Яшкино'. Радуйся, раб." },
+            { phrase: "активная жизненная позиция", warning: "Будешь бегать в мешках на корпоративе, даже если у тебя температура 39. Отказников считают нелояльными предателями. Готовься улыбаться и махать." },
+            { phrase: "быстро развивающаяся компания", warning: "Развивается так быстро, что процессы не успевают за хаосом. Сегодня ты кодер, завтра — грузчик, послезавтра — поливаешь фикус. Стабильность? Не, не слышали." },
+        ];
+
+        // --- 2. ЛОГИКА ИНИЦИАЛИЗАЦИИ FIREBASE ---
+        
+        async function initializeFirebase() {
+            try {
+                if (Object.keys(firebaseConfig).length === 0) throw new Error("Firebase config is missing.");
+                
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                storage = getStorage(app);
+                
+                document.getElementById('authStatus').textContent = 'Аутентификация...';
+
+                const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        document.getElementById('authStatus').textContent = `Боец ${userId.substring(0, 8)}... на связи.`;
+                        loadBlacklist();
+                    } else {
+                        document.getElementById('authStatus').textContent = 'Аутентификация провалена. Работаем инкогнито.';
+                    }
+                });
+            } catch (error) {
+                console.error("FIREBASE ERROR: ", error);
+                document.getElementById('authStatus').textContent = `Пиздец, база отвалилась. ${error.message}`;
+            }
+        }
+
+        // --- 3. ЛОГИКА РАБОТЫ С ЧЁРНЫМ СПИСКОМ (FIRESTORE) ---
+
+        window.submitCompanyReview = async function() {
+            if (!db || !userId) {
+                document.getElementById('submissionStatus').textContent = "Сначала подключись к базе, мудак!";
+                document.getElementById('submissionStatus').classList.add('text-danger-red');
+                return;
+            }
+            
+            const companyURLInput = document.getElementById('companyURL');
+            const companyURL = companyURLInput.value.trim();
+            const companyName = document.getElementById('companyName').value.trim();
+            const recruiterName = document.getElementById('recruiterName').value.trim();
+            const reviewText = document.getElementById('reviewText').value.trim();
+            const statusEl = document.getElementById('submissionStatus');
+            const photoFile = document.getElementById('recruiterPhoto').files[0];
+            const submitButton = document.getElementById('submitButton');
+            
+            // Валидация URL
+            let companyId, finalCompanyName;
+            try {
+                const url = new URL(companyURL);
+                const hostname = url.hostname.toLowerCase();
+                if (!hostname.includes('hh.ru') && !hostname.includes('career.habr.com')) {
+                    throw new Error("Неверный домен");
+                }
+                companyId = btoa(url.href).replace(/=/g, ''); // Используем base64 от URL как ID
+                finalCompanyName = companyName || url.hostname;
+            } catch (e) {
+                statusEl.textContent = "Введи, блять, нормальную ссылку на профиль с hh.ru или career.habr.com!";
+                statusEl.className = 'text-center text-sm font-medium mt-2 text-danger-red';
+                companyURLInput.focus();
+                return;
+            }
+
+            if (reviewText.length < 5) {
+                statusEl.textContent = "Напиши хоть пару слов в отзыве, не ленись!";
+                statusEl.className = 'text-center text-sm font-medium mt-2 text-danger-red';
+                return;
+            }
+
+            const overtime = parseInt(document.getElementById('overtimeHours').value, 10) || 0;
+            const delay = parseInt(document.getElementById('salaryDelay').value, 10) || 0;
+            const tests = parseInt(document.getElementById('freeTests').value, 10) || 0;
+            const toxicity = parseInt(document.getElementById('managementToxicity').value, 10) || 0;
+            const score = Math.min(100, (overtime * 2) + delay + tests + (toxicity * 3));
+
+            submitButton.disabled = true;
+            statusEl.textContent = "Обработка запроса...";
+            statusEl.className = 'text-center text-sm font-medium mt-2 text-warning-orange';
+            
+            let photoURL = null;
+            if (photoFile) {
+                try {
+                    statusEl.textContent = "Загружаю вещдок на сервер...";
+                    const storageRef = ref(storage, `artifacts/${appId}/public/recruiter-photos/${Date.now()}-${photoFile.name}`);
+                    const snapshot = await uploadBytes(storageRef, photoFile);
+                    photoURL = await getDownloadURL(snapshot.ref);
+                } catch (error) {
+                    console.error("PHOTO UPLOAD ERROR: ", error);
+                    statusEl.textContent = `Не удалось загрузить фото. ${error.message}`;
+                    statusEl.className = 'text-center text-sm font-medium mt-2 text-danger-red';
+                    submitButton.disabled = false;
+                    return;
+                }
+            }
+
+            statusEl.textContent = "Гравирую имя этой конторы на доске позора...";
+            
+            const companyRef = doc(db, PUBLIC_COLLECTION_PATH, companyId);
+            
+            const newReview = {
+                score,
+                details: { overtime, delay, tests, toxicity },
+                review: reviewText,
+                recruiter: recruiterName || null,
+                recruiterPhotoURL: photoURL,
+                companyProfileURL: companyURL,
+                userId,
+                timestamp: Timestamp.now(),
+            };
+
+            try {
+                await runTransaction(db, async (transaction) => {
+                    const companyDoc = await transaction.get(companyRef);
+                    
+                    if (!companyDoc.exists()) {
+                        transaction.set(companyRef, {
+                            name: finalCompanyName,
+                            profileURL: companyURL,
+                            totalScore: score,
+                            reviewCount: 1,
+                            avgScore: score,
+                            lastReview: newReview.timestamp,
+                            reviews: [newReview]
+                        });
+                    } else {
+                        const data = companyDoc.data();
+                        const newTotalScore = data.totalScore + score;
+                        const newReviewCount = data.reviewCount + 1;
+                        const updatedReviews = [newReview, ...(data.reviews || [])].slice(0, 10);
+
+                        transaction.update(companyRef, {
+                            totalScore: newTotalScore,
+                            reviewCount: newReviewCount,
+                            avgScore: Math.round(newTotalScore / newReviewCount),
+                            lastReview: newReview.timestamp,
+                            reviews: updatedReviews
+                        });
+                    }
+                });
+
+                statusEl.textContent = `ДЕЛО СДЕЛАНО! "${finalCompanyName}" теперь официально в списке мудаков.`;
+                statusEl.className = 'text-center text-sm font-medium mt-2 text-success-green';
+            } catch (error) {
+                console.error("SUBMISSION ERROR: ", error);
+                statusEl.textContent = `БЛЯТЬ! Что-то пошло не так. ${error.message}`;
+                statusEl.className = 'text-center text-sm font-medium mt-2 text-danger-red';
+            } finally {
+                submitButton.disabled = false;
+            }
+        };
+
+        window.loadBlacklist = function() {
+            if (!db) return;
+            const container = document.getElementById('blacklistContainer');
+            const loadingMessage = document.getElementById('loadingMessage');
+            const q = query(collection(db, PUBLIC_COLLECTION_PATH), orderBy("avgScore", "desc"), limit(50));
+
+            onSnapshot(q, (snapshot) => {
+                loadingMessage.classList.add('hidden');
+                container.innerHTML = '';
+                companyCache = []; 
+                
+                if (snapshot.empty) {
+                    container.innerHTML = `<p class="text-center text-gray-400 mt-4">Святое место! Список пока пуст. У тебя есть шанс стать первым мстителем. Не подведи.</p>`;
+                    return;
+                }
+                
+                let displayedCount = 0;
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    companyCache.push({ id: doc.id, name: data.name }); 
+                    
+                    if (displayedCount < 10) {
+                        const avgScore = data.avgScore || 0;
+                        const scoreColor = avgScore >= 70 ? 'text-danger-red' : (avgScore >= 40 ? 'text-warning-orange' : 'text-yellow-500');
+
+                        const item = document.createElement('button');
+                        item.className = 'w-full text-left company-list-item p-3 rounded-lg hover:bg-gray-700 transition duration-150 border-b border-gray-700 last:border-b-0 cursor-pointer';
+                        item.onclick = () => showCompanyDetails(data);
+                        
+                        item.innerHTML = `
+                            <div class="flex items-center space-x-3 overflow-hidden">
+                                <span class="text-lg font-bold text-gray-300 w-6 flex-shrink-0">#${displayedCount + 1}</span>
+                                <span class="text-lg font-medium text-white truncate">${data.name}</span>
+                            </div>
+                            <div class="text-center font-extrabold ${scoreColor} text-xl sm:text-2xl">${avgScore}</div>
+                            <div class="text-center text-gray-400 text-sm">${data.reviewCount || 0}</div>
+                            <div class="text-right text-gray-500 text-xs sm:text-sm">${data.lastReview ? data.lastReview.toDate().toLocaleDateString('ru-RU') : 'Нет'}</div>
+                        `;
+                        container.appendChild(item);
+                        displayedCount++;
+                    }
+                });
+            }, (error) => {
+                console.error("BLACKLIST LOAD ERROR: ", error);
+                container.innerHTML = `<p class="text-danger-red text-center mt-4">ПИЗДЕЦ! Ошибка загрузки списка: ${error.message}</p>`;
+            });
+        }
+        
+        // --- 4. ЛОГИКА АНАЛИЗАТОРА ВАКАНСИЙ ---
+
+        window.analyzeVacancy = function() {
+            const jobText = document.getElementById('jobText').value.toLowerCase();
+            const redFlagsList = document.getElementById('redFlagsList');
+            const resultsSection = document.getElementById('results');
+            
+            if (jobText.trim() === "") {
+                resultsSection.classList.add('hidden');
+                return;
+            }
+
+            redFlagsList.innerHTML = '';
+            resultsSection.classList.remove('hidden');
+            let score = 0;
+            const foundFlags = [];
+
+            RED_FLAGS.forEach(flag => {
+                if (jobText.includes(flag.phrase)) {
+                    foundFlags.push(flag);
+                    score += 10;
+                }
+            });
+
+            score = Math.min(100, (foundFlags.length > 0) ? score + 10 : 0);
+            
+            const toxicityScore = Math.round(score / 10);
+            document.getElementById('managementToxicity').value = toxicityScore;
+            updateCalculatedScore(); 
+
+            if (foundFlags.length === 0) {
+                redFlagsList.innerHTML = `<li class="text-success-green font-bold text-base">
+                    <svg class="inline w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    Нихуя не нашёл. Либо вакансия нормальная, либо они очень хитрожопые. Будь начеку, боец.
+                </li>`;
+            } else {
+                foundFlags.forEach(flag => {
+                    const li = document.createElement('li');
+                    li.className = 'flex items-start p-2 bg-gray-900 rounded-lg border-l-4 border-danger-red shadow-md';
+                    li.innerHTML = `
+                        <svg class="w-5 h-5 mt-1 mr-2 flex-shrink-0 text-danger-red" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                        <div>
+                            <span class="font-bold text-warning-orange uppercase block text-xs">ФЛАГ: "${flag.phrase}"</span>
+                            <span class="text-gray-300 text-sm">${flag.warning}</span>
+                        </div>
+                    `;
+                    redFlagsList.appendChild(li);
+                });
+            }
+            
+            document.getElementById('reviewFormSection').scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        // --- 5. ЛОГИКА МОДАЛЬНОГО ОКНА ---
+
+        window.showCompanyDetails = function(companyData) {
+            const modal = document.getElementById('detailsModal');
+            const companyNameEl = document.getElementById('modalCompanyName');
+            const reviewsContainer = document.getElementById('modalReviewsContainer');
+
+            companyNameEl.textContent = companyData.name;
+            reviewsContainer.innerHTML = ''; 
+
+            if (companyData.reviews && companyData.reviews.length > 0) {
+                 companyData.reviews.forEach(review => {
+                    const reviewCard = document.createElement('div');
+                    reviewCard.className = 'bg-gray-900 p-4 rounded-lg';
+                    
+                    const scoreColorClass = review.score >= 70 ? 'text-danger-red' : (review.score >= 40 ? 'text-warning-orange' : 'text-yellow-500');
+                    
+                    const photoSrc = review.recruiterPhotoURL || 'https://placehold.co/100x100/333333/FFFFFF?text=?';
+                    
+                    const recruiterInfo = review.recruiter ? `
+                        <div class="flex items-center space-x-4">
+                            <img src="${photoSrc}" alt="Recruiter photo" class="w-16 h-16 rounded-full object-cover bg-gray-700 flex-shrink-0" onerror="this.src='https://placehold.co/100x100/333333/FFFFFF?text=X'">
+                            <div>
+                                <p class="text-sm text-gray-400">Рекрутер-мудак:</p>
+                                <p class="font-bold text-white">${escapeHTML(review.recruiter)}</p>
+                            </div>
+                        </div>` : '';
+                    
+                    let detailsHTML = '';
+                    if (review.details) {
+                        detailsHTML = `
+                            <div class="mt-3 pt-3 border-t border-gray-700 text-xs text-gray-400 grid grid-cols-2 gap-x-4 gap-y-1">
+                                <span>Переработки: <span class="font-bold text-white">${review.details.overtime || 0} ч/нед</span></span>
+                                <span>Задержка ЗП: <span class="font-bold text-white">${review.details.delay || 0} дн</span></span>
+                                <span>Тестовые: <span class="font-bold text-white">${review.details.tests || 0} шт</span></span>
+                                <span>Токсичность: <span class="font-bold text-white">${review.details.toxicity || 0}/10</span></span>
+                            </div>
+                        `;
+                    }
+                    
+                    let profileLinkHTML = '';
+                    if (review.companyProfileURL) {
+                        let icon = '';
+                        try {
+                            const url = new URL(review.companyProfileURL);
+                            if (url.hostname.includes('hh.ru')) {
+                                icon = `<img src="https://hh.ru/favicon.ico" class="w-4 h-4 inline mr-2" alt="hh.ru">`;
+                            } else if (url.hostname.includes('habr.com')) {
+                                icon = `<img src="https://career.habr.com/favicon.ico" class="w-4 h-4 inline mr-2" alt="habr.com">`;
+                            }
+                        } catch (e) {}
+
+                        profileLinkHTML = `<a href="${escapeHTML(review.companyProfileURL)}" target="_blank" rel="noopener noreferrer" class="text-xs text-blue-400 hover:underline break-all">${icon}Ссылка на профиль</a>`;
+                    }
+
+
+                    reviewCard.innerHTML = `
+                        <div class="flex flex-col sm:flex-row justify-between sm:items-center mb-3 pb-3 border-b border-gray-700">
+                             <div class="mb-2 sm:mb-0">
+                                <span class="font-bold text-lg ${scoreColorClass}">Итоговая Оценка: ${review.score}</span>
+                             </div>
+                             <span class="text-xs text-gray-500">${review.timestamp.toDate().toLocaleString('ru-RU')}</span>
+                        </div>
+                        
+                        <div class="flex flex-col sm:flex-row gap-4">
+                            <div class="flex-1">
+                                <p class="text-gray-300 italic">"${escapeHTML(review.review)}"</p>
+                                <div class="mt-2">${profileLinkHTML}</div>
+                                <p class="text-xs text-gray-600 mt-2 text-right">User ID: ...${review.userId.slice(-6)}</p>
+                            </div>
+                            <div class="sm:w-1/3 space-y-3">
+                                ${recruiterInfo}
+                                ${detailsHTML}
+                            </div>
+                        </div>
+                    `;
+                    reviewsContainer.appendChild(reviewCard);
+                });
+            } else {
+                reviewsContainer.innerHTML = '<p class="text-gray-400 text-center">Про эту контору ещё никто не написал. Странно.</p>';
+            }
+
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.classList.remove('opacity-0', 'pointer-events-none');
+                modal.querySelector('.modal-content').classList.remove('scale-95');
+            }, 10);
+        }
+
+        window.closeDetailsModal = function() {
+            const modal = document.getElementById('detailsModal');
+            modal.classList.add('opacity-0', 'pointer-events-none');
+            modal.querySelector('.modal-content').classList.add('scale-95');
+            setTimeout(() => { modal.classList.add('hidden'); }, 250);
+        }
+
+        // --- 6. ЛОГИКА ИНТЕРАКТИВНЫХ ЭЛЕМЕНТОВ ---
+        const companyNameInput = document.getElementById('companyName');
+        const autocompleteResults = document.getElementById('autocompleteResults');
+        const recruiterPhotoInput = document.getElementById('recruiterPhoto');
+        const recruiterPhotoPreview = document.getElementById('recruiterPhotoPreview');
+
+        function escapeHTML(str) {
+            if (!str) return '';
+            return str.replace(/[&<>"']/g, match => ({'&': '&amp;','<': '&lt;','>': '&gt;','"': '&quot;',"'": '&#39;'}[match]));
+        }
+
+        // Автозаполнение
+        companyNameInput.addEventListener('input', () => {
+             const inputText = companyNameInput.value.trim().toLowerCase();
+            
+            if (inputText.length < 2) {
+                autocompleteResults.innerHTML = '';
+                autocompleteResults.classList.add('hidden');
+                return;
+            }
+
+            const matches = companyCache.filter(company => company.name.toLowerCase().includes(inputText));
+
+            if (matches.length > 0) {
+                autocompleteResults.innerHTML = matches.map(match => 
+                    `<div class="p-3 hover:bg-gray-600 cursor-pointer" data-name="${escapeHTML(match.name)}">${escapeHTML(match.name)}</div>`
+                ).join('');
+                autocompleteResults.classList.remove('hidden');
+            } else {
+                autocompleteResults.innerHTML = '';
+                autocompleteResults.classList.add('hidden');
+            }
+        });
+        autocompleteResults.addEventListener('click', (e) => {
+            if (e.target && e.target.matches('div[data-name]')) {
+                companyNameInput.value = e.target.dataset.name;
+                autocompleteResults.innerHTML = '';
+                autocompleteResults.classList.add('hidden');
+            }
+        });
+        document.addEventListener('click', (e) => {
+             if (!companyNameInput.contains(e.target) && !autocompleteResults.contains(e.target)) {
+                autocompleteResults.innerHTML = '';
+                autocompleteResults.classList.add('hidden');
+            }
+        });
+        
+        // Превью фото
+        recruiterPhotoInput.addEventListener('change', () => {
+            const file = recruiterPhotoInput.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    recruiterPhotoPreview.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+        
+        // --- 7. ЛОГИКА КАЛЬКУЛЯТОРА РЕЙТИНГА ---
+        const overtimeInput = document.getElementById('overtimeHours');
+        const delayInput = document.getElementById('salaryDelay');
+        const testsInput = document.getElementById('freeTests');
+        const toxicitySlider = document.getElementById('managementToxicity');
+        const toxicityValueDisplay = document.getElementById('toxicityValue');
+        const finalScoreDisplay = document.getElementById('calculatedScoreDisplay');
+
+        const ratingInputs = [overtimeInput, delayInput, testsInput, toxicitySlider];
+
+        function updateCalculatedScore() {
+            const overtime = parseInt(overtimeInput.value, 10) || 0;
+            const delay = parseInt(delayInput.value, 10) || 0;
+            const tests = parseInt(testsInput.value, 10) || 0;
+            const toxicity = parseInt(toxicitySlider.value, 10) || 0;
+            const finalScore = Math.min(100, (overtime * 2) + delay + tests + (toxicity * 3));
+
+            finalScoreDisplay.textContent = finalScore;
+            toxicityValueDisplay.textContent = toxicity;
+            
+            let scoreColorClass = finalScore >= 70 ? 'text-danger-red' : (finalScore >= 40 ? 'text-warning-orange' : (finalScore > 0 ? 'text-yellow-500' : 'text-success-green'));
+            finalScoreDisplay.className = `text-4xl font-extrabold transition-colors duration-300 ${scoreColorClass}`;
+        }
+
+        ratingInputs.forEach(input => input.addEventListener('input', updateCalculatedScore));
+
+        // --- 8. ЗАПУСК ПРИЛОЖЕНИЯ ---
+        window.onload = () => {
+            initializeFirebase();
+            updateCalculatedScore();
+        };
+    </script>
+
+</body>
+</html>
+
